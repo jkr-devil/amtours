@@ -1,3 +1,4 @@
+import { supabase } from "./supabase";
 import React, { useState, useMemo, useEffect } from 'react';
 import { 
   LayoutDashboard, 
@@ -266,20 +267,43 @@ const TransactionForm = ({ type, onAdd }) => {
 // --- MAIN APP COMPONENT ---
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('dashboard');
+   const [activeTab, setActiveTab] = useState('dashboard');
+   const [transactions, setTransactions] = useState([]);
+
+  const [reportFilter, setReportFilter] = useState({
+  month: new Date().getMonth(),
+  year: new Date().getFullYear()
+});
+
+  const fetchTransactions = async () => {
+  const { data, error } = await supabase
+    .from("expenses")
+    .select("*");
+
+  const { data: incomeData } = await supabase
+    .from("income")
+    .select("*");
+
+  if (!error) {
+    const merged = [
+      ...(data || []).map(e => ({ ...e, type: "expense" })),
+      ...(incomeData || []).map(i => ({ ...i, type: "income" }))
+    ];
+
+    setTransactions(merged);
+  }
+
+
+};
+  useEffect(() => {
+  fetchTransactions();
+}, []);
+
+
+
   
   // Data Persistence: Initialize from localStorage if available, else use mock data
-  const [transactions, setTransactions] = useState(() => {
-    const savedTransactions = localStorage.getItem('transactions');
-    return savedTransactions ? JSON.parse(savedTransactions) : INITIAL_TRANSACTIONS;
-  });
 
-  const [reportFilter, setReportFilter] = useState({ month: new Date().getMonth(), year: new Date().getFullYear() });
-
-  // Data Persistence: Save to localStorage whenever transactions change
-  useEffect(() => {
-    localStorage.setItem('transactions', JSON.stringify(transactions));
-  }, [transactions]);
 
   // --- DERIVED STATE ---
 
@@ -335,13 +359,33 @@ export default function App() {
 
   // --- ACTIONS ---
 
-  const addTransaction = (txn) => {
-    setTransactions(prev => [...prev, txn]);
+const addTransaction = async (txn) => {
+  const table = txn.type === "income" ? "income" : "expenses";
+
+  const payload = {
+    date: txn.date,
+    description: txn.description,
+    category: txn.category,
+    amount: txn.amount
   };
 
-  const deleteTransaction = (id) => {
-    setTransactions(prev => prev.filter(t => t.id !== id));
-  };
+  const { error } = await supabase.from(table).insert([payload]);
+
+  if (!error) {
+    fetchTransactions(); // refresh UI
+  } else {
+    console.error(error);
+  }
+};
+
+
+const deleteTransaction = async (id, type) => {
+  const table = type === "income" ? "income" : "expenses";
+
+  await supabase.from(table).delete().eq("id", id);
+  fetchTransactions();
+};
+
 
   // --- VIEWS ---
 
@@ -477,7 +521,7 @@ export default function App() {
                     </td>
                     <td className="p-4 text-center">
                       <button 
-                        onClick={() => deleteTransaction(txn.id)}
+onClick={() => deleteTransaction(txn.id, txn.type)}
                         className="p-2 hover:bg-rose-100 text-slate-400 hover:text-rose-500 rounded-lg transition-colors"
                       >
                         <Trash2 size={16} />
